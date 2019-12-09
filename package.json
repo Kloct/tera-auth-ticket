@@ -5,7 +5,7 @@
   "main": "index.js",
   "repository": "github:Kloct/tera-auth-ticket",
   "author": "Kloct",
-  "license": "ISC",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/kloct/tera-auth-ticket/issues"
   },
