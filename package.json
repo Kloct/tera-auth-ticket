@@ -1,0 +1,16 @@
+{
+  "name": "tera-auth-ticket",
+  "version": "1.0.0",
+  "description": "Generates an auth ticket from a given TERA account using the existing TERA NA launcher api",
+  "main": "index.js",
+  "repository": "github:Kloct/tera-auth-ticket",
+  "author": "Kloct",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kloct/tera-auth-ticket/issues"
+  },
+  "homepage": "https://github.com/kloct/tera-auth-ticket#readme",
+  "dependencies": {
+    "request": "^2.88.0"
+  }
+}
