@@ -44,21 +44,53 @@ class webClient {
             })
         })
     }
+    createAccount(bearer) {
+        return new Promise((resolve, reject)=>{
+            this.requestSpark.post({
+                url: '/user/thin/accounts',
+                auth: { bearer },
+                json: {
+                    platformGameId: '68f799ce-b2cf-44f5-8638-ce992d7fd0f4',
+                    displayName: this.email.substring(0, this.email.indexOf('@')),
+                    email: this.email,
+                    gfLang: 'en',
+                    region: '',
+                    blackbox: null
+                }
+            }, (err, res, body)=>{
+                if (err) reject(err);
+                else {
+                    resolve(body);
+                }
+            })
+        })
+    }
     getAccounts(bearer){
         return new Promise((resolve, reject)=>{
             this.requestSpark.get({
                 url: '/user/accounts',
                 auth: { bearer },
                 json: true
-            }, (err, res, body)=>{
+            }, async (err, res, body)=>{
                 if (err) reject(err);
                 else {
-                    Object.values(body).forEach(a=>{
+                    let account = Object.values(body).find(a=>{
                         if (a.guls.game === 'tera'){
-                            logThis.log(`Got account info: ${a.displayName} #${a.accountNumericId}`)
-                            resolve(a);
+                            return true;
                         }
-                    })
+                    });
+                    if (account) {
+                        logThis.log(`Got account info: ${account.displayName} #${account.accountNumericId}`)
+                        resolve(account);
+                    } else {
+                        logThis.log(`No TERA-EU account found. Creating one.`);
+                        try {
+                            await this.createAccount(bearer);
+                            resolve(this.getAccounts(bearer));
+                        } catch (err) {
+                            reject(err);
+                        }
+                    }
                 }
             })
         })
@@ -87,7 +119,7 @@ class webClient {
             }, (err, res, body)=>{
                 if (err) reject(err);
                 else if (res.statusCode === 403 ) reject('Account blocked, Please contact Support');
-                else if (body.error) reject(body.error);
+                else if (body && body.error) reject(body.error);
                 else resolve(j);
             })
         })
