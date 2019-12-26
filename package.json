@@ -11,6 +11,7 @@
   },
   "homepage": "https://github.com/kloct/tera-auth-ticket#readme",
   "dependencies": {
+    "log": "github:pinkipi/log",
     "request": "^2.88.0"
   }
 }
