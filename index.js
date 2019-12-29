@@ -1,5 +1,6 @@
 const webNA = require('./regions/na');
 const webEU = require('./regions/eu');
+const webRU = require('./regions/ru');
 
 class webClient {
     constructor(region, email, password) {
@@ -16,6 +17,11 @@ class webClient {
             case 'eu': 
                 web = new webEU(this.email, this.password);
                 break;
+            case 'ru':
+                web = new webRU(this.email, this.password);
+                break;
+            default:
+                callback(new Error(`Unsupported Region ${this.region}`))
         }
         web.getLogin((err, data) => {
             if (err) callback(err)
