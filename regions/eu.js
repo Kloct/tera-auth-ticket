@@ -37,9 +37,12 @@ class webClient {
                 }
             }, (err, res, body)=>{
                 if (err) reject(err);
-                else {
+                else if (body.token) {
                     logThis.log('Login Successfull!');
                     resolve(body.token);
+                }
+                else {
+                    reject(`Could not login to Gameforge account! (${this.email})\n Please check that you have provided the correct email and password and that the account is not blocked.`);
                 }
             })
         })
