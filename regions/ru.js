@@ -37,14 +37,6 @@ function makeHeadersLauncher(o) {
     );
 }
 
-// TODO: add a process that actually resolves some of these automatically
-let failedToLoginError = `Failed to login!\nThis is usually caused by one of two things:
-    1) An Incorrect Username, Password, or Captcha
-        Check your provided email and password'
-
-    2) You are logging in from a new location and are required to authenticate with 2FA sent to your email
-        Complete this process once on the official launcher with this ip to proceeed\n`
-
 class webClient {
     constructor(email, password) {
         this.email = email
@@ -89,9 +81,8 @@ class webClient {
             creds.captcha_1 = captcha
             fs.unlink('captcha.jpg', err=>{ if (err) throw err })
         }
-        rl.close()
         // login
-        await this.axiosDestiny({
+        let login = await this.axiosDestiny({
             method: 'post',
             url: 'https://id.ddestiny.ru/bar/popup/login/', // need to specify full url for cookie to work
             maxRedirects: 0,
@@ -101,9 +92,57 @@ class webClient {
             }),
             data: querystring.stringify(creds)
         })
-            .then(res=>{
-                if (res.status!==302) throw failedToLoginError
+        if (login.headers.location === '/bar/popup/login/twofactor/?') {
+            let twoFactorRes = await this.axiosDestiny.get('https://id.ddestiny.ru/bar/popup/login/twofactor/?', {
+                headers: makeHeadersDestiny({
+                    'Referer': 'https://id.ddestiny.ru/bar/popup/login/'
+                })
             })
+            logThis.log(`2FA Required to continue! An email with a One Time Password has been sent to ${this.email}`)
+            let code = await question('Enter OTP: ')
+            // Check Captcha in OTP Form
+            let twoFactorCaptcha = {}
+            if (twoFactorRes.data.match(/\/captcha\/image\/.{41}/)) {
+                twoFactorCaptcha.captcha_0 = twoFactorRes.data.match(/\/captcha\/image\/.{41}/)[0].match(/\w{40,40}/)
+                this.axiosDestiny.get(twoFactorRes.data.match(/\/captcha\/image\/.{41}/)[0], { responseType: 'stream' })
+                    .then(res=> {
+                        res.data.pipe(fs.createWriteStream('captcha.jpg'))
+                    })
+                logThis.log('Captcha Detected in OTP!, Dowloaded to "node_modules/tera-auth-ticket/captcha.jpg".')
+                let captcha = await question('Enter the captcha solution: ')
+                twoFactorCaptcha.captcha_1 = captcha
+                fs.unlink('captcha.jpg', err=>{ if (err) throw err })
+            }
+            // Post OTP Form
+            await this.axiosDestiny({
+                method: 'post',
+                url: 'https://id.ddestiny.ru/bar/popup/login/twofactor/?',
+                maxRedirects: 0,
+                headers: makeHeadersDestiny({
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Referer': 'https://id.ddestiny.ru/bar/popup/login/twofactor/?'
+                }),
+                data: querystring.stringify(
+                    Object.assign({
+                        'otp_challenge': '',
+                        'csrfmiddlewaretoken': creds.csrfmiddlewaretoken,
+                        'otp_token': code
+                    }, twoFactorCaptcha)
+                )
+            })
+                .then(res=>{
+                    if (res.status!=302) {
+                        rl.close()
+                        throw `Incorrect OTP${twoFactorCaptcha.captcha_1?' or Captcha':''}!`
+                    }
+                })
+        }
+        if (login.status!==302){
+            rl.close()
+            throw `Failed to login! Incorrect username/password${creds.captcha_0?'/captcha':''}`
+        }
+        rl.close()
+
         logThis.log('Login Successful');
         // Launcher OAuth
         let oAuthStart = await this.axiosLauncher.get('/login/destinyid/?next=http%3A%2F%2Flauncher.tera-online.ru%2Flauncher%2F%3Fosid%3D4105790410', {maxRedirects: 0})
