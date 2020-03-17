@@ -1,146 +1,70 @@
-const request = require('request');
+const axios = require('axios');
+const querystring = require('querystring');
 const log = require('log');
 const logThis = log('tera-auth-ticket')
 
 class webClient {
-    constructor(email, password) {
-        this.email = email
-        this.password = password
-        this.requestSpark = request.defaults({
-            baseUrl: 'https://spark.gameforge.com/api/v1'
-        })
-        this.requestLogin = request.defaults({
-            baseUrl: 'https://login.tera.gameforge.com/launcher'
-        })
+    constructor(email, password, account) {
+        this.email = email;
+        this.password = password;
+        this.account = account;
+        this.axiosSpark = axios.create({
+            baseURL: 'https://spark.gameforge.com/api/v1'
+        });
+        this.axiosLogin = axios.create({
+            baseURL: 'https://login.tera.gameforge.com/launcher'
+        });
+        this.headers = {};
     }
-    async getLogin(callback){
-        try{
-            let bearerToken = await this.getBearer();
-            let account = await this.getAccounts(bearerToken);
-            let mAuthCode = await this.getMAuthSession(bearerToken, account);
-            let cookie = await this.loginMAuth(mAuthCode);
-            let serverInfo = await this.getServerInfo(cookie);
-            callback(null, {name: serverInfo.master_account_name, ticket: serverInfo.ticket})
-        }
-        catch(err){
-            callback(err)
-        }
-    }
-    getBearer(){
-        return new Promise((resolve, reject)=>{
-            this.requestSpark.post({
-                url: '/auth/sessions',
-                json: {
-                    email: this.email,
-                    password: this.password,
-                    locale: 'en_GB'
-                }
-            }, (err, res, body)=>{
-                if (err) reject(err);
-                else if (body.token) {
-                    logThis.log('Login Successfull!');
-                    resolve(body.token);
-                }
-                else {
-                    reject(`Could not login to Gameforge account! (${this.email})\n Please check that you have provided the correct email and password and that the account is not blocked.`);
-                }
+    async getLogin(){
+        // Login to AMS
+        let { data: accessToken } = await this.axiosSpark.post('/auth/sessions', {
+                "email": this.email,
+                "password": this.password,
+                "locale": 'en_GB'
             })
-        })
+            .catch(err=>{
+                if (err.response.status===403) throw 'Invalid email or password!'
+                else throw err
+            });
+        logThis.log('Received Access Token!');
+        this.headers = {Authorization: `Bearer ${accessToken.token}`}; 
+        // Account Info
+        let account = await this.getAccountInfo();
+        logThis.log(`Account Info: (Account Name: ${account.displayName}, Account Id: ${account.accountNumericId})`);
+        // MAuth Code
+        let { data: mAuth } = await this.axiosSpark.post('/auth/thin/codes', {platformGameAccountId: account.id}, {headers: this.headers});
+        // Cookie
+        let cookie = await this.axiosLogin.post('/loginMAuth', querystring.stringify({mauth_session:mAuth.code, language: 'en' }), {headers: { 'content-type': 'application/x-www-form-urlencoded'}} )
+            .catch(err=>{
+                if(err.response.status === 403) throw 'Account blocked, Please contact Support';
+                else throw err;
+            });
+        this.headers = {Cookie: cookie.headers["set-cookie"][1]};
+        // Auth Token
+        let { data: serverInfo } = await this.axiosLogin.get('/getServerInfo', {headers: this.headers});
+        return {name: serverInfo.master_account_name, ticket: serverInfo.ticket};
     }
-    createAccount(bearer) {
-        return new Promise((resolve, reject)=>{
-            this.requestSpark.post({
-                url: '/user/thin/accounts',
-                auth: { bearer },
-                json: {
-                    platformGameId: '68f799ce-b2cf-44f5-8638-ce992d7fd0f4',
-                    displayName: this.email.substring(0, this.email.indexOf('@')),
-                    email: this.email,
-                    gfLang: 'en',
-                    region: '',
-                    blackbox: null
-                }
-            }, (err, res, body)=>{
-                if (err) reject(err);
-                else {
-                    resolve(body);
-                }
-            })
-        })
-    }
-    getAccounts(bearer){
-        return new Promise((resolve, reject)=>{
-            this.requestSpark.get({
-                url: '/user/accounts',
-                auth: { bearer },
-                json: true
-            }, async (err, res, body)=>{
-                if (err) reject(err);
-                else {
-                    let account = Object.values(body).find(a=>{
-                        if (a.guls.game === 'tera'){
-                            return true;
-                        }
-                    });
-                    if (account) {
-                        logThis.log(`Got account info: ${account.displayName} #${account.accountNumericId}`)
-                        resolve(account);
-                    } else {
-                        logThis.log(`No TERA-EU account found. Creating one.`);
-                        try {
-                            await this.createAccount(bearer);
-                            resolve(this.getAccounts(bearer));
-                        } catch (err) {
-                            reject(err);
-                        }
-                    }
-                }
-            })
-        })
-    }
-    getMAuthSession(bearer, account){
-        return new Promise((resolve, reject)=>{
-            this.requestSpark.post({
-                url: '/auth/thin/codes',
-                json: { platformGameAccountId: account.id },
-                auth: { bearer },
-            }, (err, res, body)=>{
-                if (err) reject(err);
-                else resolve(body.code);
-            })
-        })
-    }
-    // thanks Mathicha (https://github.com/Mathicha/tera-auth-ticket-eu) for figuring out this last part of the login process
-    loginMAuth(mauth_session){
-        return new Promise((resolve, reject)=>{
-            const j = request.jar()
-            this.requestLogin.post({
-                url: '/loginMAuth',
-                form: { mauth_session, language: 'en'},
-                json: true,
-                jar: j
-            }, (err, res, body)=>{
-                if (err) reject(err);
-                else if (res.statusCode === 403 ) reject('Account blocked, Please contact Support');
-                else if (body && body.error) reject(body.error);
-                else resolve(j);
-            })
-        })
-    }
-    getServerInfo(jar){
-        return new Promise((resolve, reject)=>{
-            this.requestLogin.get({
-                url: '/getServerInfo',
-                json: true,
-                jar
-            }, (err, res, body)=>{
-                if(err) reject(err);
-                else {
-                    logThis.log('Got Ticket!')
-                    resolve(body);
-                }
-            })
-        })
+
+    async getAccountInfo() {
+        let { data: accounts } = await this.axiosSpark.get('/user/accounts', {headers: this.headers});
+        let teraAccounts = Object.values(accounts).filter(a=>a.guls.game==='tera');
+            if (teraAccounts) { // Check for tera account
+                if (this.account) { // Use predefined account
+                    return teraAccounts.filter(a=>a.displayName===this.account)[0];
+                } else return teraAccounts[0];
+            } else {
+                logThis.log(`No TERA-EU account found. Creating one.`);
+                await this.axiosSpark.post('/user/thin/accounts', {
+                    "platformGameId": '68f799ce-b2cf-44f5-8638-ce992d7fd0f4',
+                    "displayName": this.email.substring(0, this.email.indexOf('@')),
+                    "email": this.email,
+                    "gfLang": 'en',
+                    "region": '',
+                    "blackbox": null
+                }, {headers: this.headers});
+                return this.getAccountInfo();
+            }
     }
 }
 module.exports = webClient;

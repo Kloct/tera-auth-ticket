@@ -11,7 +11,8 @@
   },
   "homepage": "https://github.com/kloct/tera-auth-ticket#readme",
   "dependencies": {
-    "log": "github:pinkipi/log",
-    "request": "^2.88.0"
+    "axios": "^0.19.2",
+    "axios-cookiejar-support": "^0.5.1",
+    "log": "github:pinkipi/log"
   }
 }

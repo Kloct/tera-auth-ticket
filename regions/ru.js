@@ -1,7 +1,14 @@
-const request = require('request');
+const axios = require('axios').default;
 const log = require('log');
 const logThis = log('tera-auth-ticket');
-const util = require('util');
+const querystring = require('querystring');
+const axiosCookieJarSupport = require('axios-cookiejar-support').default;
+const tough = require('tough-cookie');
+const fs = require('fs');
+const readline = require('readline')
+
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+function question(q) { return new Promise(resolve => { rl.question(q, resolve) }) }
 
 function makeHeadersDestiny(o) {
     return Object.assign({},
@@ -31,133 +38,88 @@ function makeHeadersLauncher(o) {
 }
 
 // TODO: add a process that actually resolves some of these automatically
-let failedToLoginError = `Failed to login!\nThis is usually caused by one of three things:
-    1) An Incorrect Username or Password
+let failedToLoginError = `Failed to login!\nThis is usually caused by one of two things:
+    1) An Incorrect Username, Password, or Captcha
         Check your provided email and password'
 
-    2) There is a captcha in place after too many login attempts from this location
-        You can complete the captcha on the official launcher with this ip and wait 10 minutes for this issue to resolve automatically
-
-    3) You are logging in from a new location and are required to authenticate with 2FA sent to your email
+    2) You are logging in from a new location and are required to authenticate with 2FA sent to your email
         Complete this process once on the official launcher with this ip to proceeed\n`
 
 class webClient {
     constructor(email, password) {
         this.email = email
         this.password = password
-        this.destinyCookie = request.jar()
-        this.requestDestiny = request.defaults({
-            baseUrl: 'https://id.ddestiny.ru',
+        this.axiosDestiny = axios.create({
+            baseURL: 'https://id.ddestiny.ru',
             headers: makeHeadersDestiny(),
-            jar: this.destinyCookie
+            withCredentials: true,
+            validateStatus: status=>status < 400
         })
-        this.launcherCookie = request.jar()
-        this.requestLauncher = request.defaults({
-            baseUrl: 'http://launcher.tera-online.ru',
+        axiosCookieJarSupport(this.axiosDestiny);
+        this.axiosDestiny.defaults.jar = new tough.CookieJar();
+        this.axiosLauncher = axios.create({
+            baseURL: 'http://launcher.tera-online.ru',
             headers: makeHeadersLauncher(),
-            jar: this.launcherCookie
+            withCredentials: true,
+            validateStatus: status=>status < 400
         })
+        axiosCookieJarSupport(this.axiosLauncher);
+        this.axiosLauncher.defaults.jar = new tough.CookieJar();
     }
 
-    async getLogin(callback){
-        try {
-            let login = await this.destinyLogin();
-            logThis.log(login)
-            let OAuth = await this.launcherOAuth();
-            logThis.log(OAuth.msg)
-            let OTP = await this.getOTP();
-            logThis.log(OTP.msg)
-            callback(null, {name: OAuth.name, ticket: OTP.ticket})
+    async getLogin(){
+        // Session Id
+        await this.axiosDestiny.get('/bar', { params: {project: 'tera'} })
+        // csrf
+        let popup = await this.axiosDestiny.get('/bar/popup/login/')
+        let creds = {
+            csrfmiddlewaretoken: popup.config.jar.toJSON().cookies.filter((cookie)=>cookie.key==='destinyid_csrftoken')[0].value,
+            username: this.email,
+            password: this.password
         }
-        catch(e) {
-            callback(e)
+        // captcha detection
+        if (popup.data.match(/\/captcha\/image\/.{41}/)) {
+            creds.captcha_0 = popup.data.match(/\/captcha\/image\/.{41}/)[0].match(/\w{40,40}/)
+            this.axiosDestiny.get(popup.data.match(/\/captcha\/image\/.{41}/)[0], { responseType: 'stream' })
+                .then(res=> {
+                    res.data.pipe(fs.createWriteStream('captcha.jpg'))
+                })
+            logThis.log('Captcha Detected!, Dowloaded to "node_modules/tera-auth-ticket/captcha.jpg".')
+            let captcha = await question('Enter the captcha solution: ')
+            creds.captcha_1 = captcha
+            fs.unlink('captcha.jpg', err=>{ if (err) throw err })
         }
-    }
-
-    destinyLogin(){
-        return new Promise((resolve, reject)=>{
-            // get destinyid session ID
-            this.requestDestiny({ url: `/bar/?project=tera` }, (err, res, body)=>{
-                if(err) reject(new Error('Failed to get Destiny session ID!'))
-
-                // get destinyid csrf token
-                this.requestDestiny({ url: `/bar/popup/login/` }, (err, res, body)=>{
-                    if(err) reject(new Error('Failed to get Destiny csrf token!'))
-                    let oldCSRF = this.destinyCookie.getCookies('https://id.ddestiny.ru/bar/popup/login/')[1].value
-
-
-                    // login
-                    this.requestDestiny.post({ 
-                        url: '/bar/popup/login/',
-                        headers: makeHeadersDestiny({
-                            'Referer': 'https://id.ddestiny.ru/bar/popup/login/'
-                        }),
-                        form: {
-                            csrfmiddlewaretoken: this.destinyCookie.getCookies('https://id.ddestiny.ru/bar/popup/login/')[1].value,
-                            username: this.email,
-                            password: this.password
-                        }
-                    }, (err, res, body)=>{
-                        let newCSRF = this.destinyCookie.getCookies('https://id.ddestiny.ru/bar/popup/login/')[1].value
-                        if(oldCSRF===newCSRF) reject(failedToLoginError) // Going to take a lot of effort to fix some of these errors :/
-                        if (err) reject(new Error('Error at Login!'));
-                        resolve('DestinyId login completed');
-                    })
-                })
-            })
+        rl.close()
+        // login
+        await this.axiosDestiny({
+            method: 'post',
+            url: 'https://id.ddestiny.ru/bar/popup/login/', // need to specify full url for cookie to work
+            maxRedirects: 0,
+            headers: makeHeadersDestiny({
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Referer': 'https://id.ddestiny.ru/bar/popup/login/'
+            }),
+            data: querystring.stringify(creds)
         })
-    }
-    // Yucky callback tree
-    launcherOAuth(){
-        return new Promise((resolve, reject)=>{
-
-            //oauth start
-            this.requestLauncher({ url: '/login/destinyid/?next=http%3A%2F%2Flauncher.tera-online.ru%2Flauncher%2F%3Fosid%3D4105790410', followRedirect: false }, (err, res, body)=>{
-                if(err) reject(new Error('Failed to start OAuth!'));
-
-                //oauth authorize
-                this.requestDestiny({ url: res.headers.location.slice(22), followRedirect: false }, (err, res, body)=>{
-                    if(err) reject(new Error('OAuth failed to authorize!'));
-
-                    //oauth confirm
-                    this.requestDestiny({ url: '/oauth2/authorize/confirm', followRedirect: false }, (err, res, body)=>{
-                        if(err) reject(new Error('OAuth authorization confirm failed!'));
-
-                        //oauth redirect
-                        this.requestDestiny({ url: '/oauth2/redirect', followRedirect: false }, (err, res, body)=>{
-                            if(err) reject(new Error('Failed to redirect after OAuth!'));
-
-                            // launcher complete
-                            this.requestLauncher({ url: res.headers.location.slice(30), followRedirect: false }, (err, res, body)=>{
-                                if(err) reject(new Error('Failed to follow OAuth redirect!'));
-                                try{
-                                    resolve({msg: `OAuth complete (Account: #${res.headers['x-accel-userid']})`, name: res.headers['x-accel-userid']});
-                                }
-                                catch(e){
-                                    reject(new Error('OAuth has failed'))
-                                }
-                            })
-                        })
-                    })
-                })
+            .then(res=>{
+                if (res.status!==302) throw failedToLoginError
             })
+        logThis.log('Login Successful');
+        // Launcher OAuth
+        let oAuthStart = await this.axiosLauncher.get('/login/destinyid/?next=http%3A%2F%2Flauncher.tera-online.ru%2Flauncher%2F%3Fosid%3D4105790410', {maxRedirects: 0})
+        await this.axiosDestiny.get(oAuthStart.headers.location, {maxRedirects: 0})
+        await this.axiosDestiny.get('/oauth2/authorize/confirm', {maxRedirects: 0})
+        let oAuthRedirect = await this.axiosDestiny.get('/oauth2/redirect', {maxRedirects: 0})
+        let oAuthComplete = await this.axiosLauncher.get(oAuthRedirect.headers.location, {maxRedirects: 0})
+        logThis.log(`OAuth complete (Account: #${oAuthComplete.headers['x-accel-userid']})`)
+        // Auth ticket
+        let { data: authTicket } = await this.axiosLauncher.post('/launcher/get_otp/', {
+            headers: makeHeadersLauncher({
+                'X-Requested-With': 'XMLHttpRequest'
+            }),
+            data: 'source='
         })
-        
-    }
-    getOTP(){
-        return new Promise((resolve, reject)=>{
-            this.requestLauncher.post({ // get otp
-                url: '/launcher/get_otp/',
-                headers: makeHeadersLauncher({
-                    'X-Requested-With': 'XMLHttpRequest'
-                }),
-                body: 'source='
-            }, (err, res, body)=>{
-                if(err) reject(new Error('Failed to get ticket!'));
-                resolve({msg: 'Got ticket!', ticket: JSON.parse(body).otp});
-            })
-        })
-        
+        return {name: oAuthComplete.headers['x-accel-userid'], ticket: authTicket.otp}
     }
 }
 module.exports = webClient;
