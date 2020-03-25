@@ -22,11 +22,11 @@ function makeHeadersDestiny(o) {
 function makeHeadersLauncher(o) {
     return Object.assign({},
         {
-            'Host': 'launcher.tera-online.ru',
+            'Host': 'www.tera-online.ru',
             'Connection': 'keep-alive',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'User-Agent': 'Mozilla/5.0 (Windows NT 6.2; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/33.0.1750.170 Safari/537.36',
-            'Referer': 'http://launcher.tera-online.ru/launcher/',
+            'Referer': 'https://www.tera-online.ru/launcher/',
             'Accept-Encoding': 'gzip,deflate',
             'Accept-Language': 'en-us,en;q=0.8'
         },
@@ -49,7 +49,7 @@ class webClient {
         axiosCookieJarSupport(this.axiosDestiny);
         this.axiosDestiny.defaults.jar = new tough.CookieJar();
         this.axiosLauncher = axios.create({
-            baseURL: 'http://launcher.tera-online.ru',
+            baseURL: 'https://www.tera-online.ru',
             headers: makeHeadersLauncher(),
             withCredentials: true,
             validateStatus: status=>status < 400
