@@ -5,7 +5,7 @@
 
 ## Usage
 
-```Javascript
+```JavaScript
 const webClient = require('tera-auth-ticket');
 const web = new webClient('(na, eu, ru)', 'email', 'password', 'EUAccountName(optional)');
 
