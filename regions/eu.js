@@ -49,7 +49,7 @@ class webClient {
     async getAccountInfo() {
         let { data: accounts } = await this.axiosSpark.get('/user/accounts', {headers: this.headers});
         let teraAccounts = Object.values(accounts).filter(a=>a.guls.game==='tera');
-            if (teraAccounts) { // Check for tera account
+            if (teraAccounts.length) { // Check for tera account
                 if (this.account) { // Use predefined account
                     return teraAccounts.filter(a=>a.displayName===this.account)[0];
                 } else return teraAccounts[0];
