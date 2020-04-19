@@ -13,6 +13,7 @@
   "dependencies": {
     "axios": "^0.19.2",
     "axios-cookiejar-support": "^0.5.1",
-    "log": "github:pinkipi/log"
+    "log": "github:pinkipi/log",
+    "qs": "^6.9.3"
   }
 }

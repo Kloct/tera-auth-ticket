@@ -1,6 +1,8 @@
 const axios = require('axios');
 const log = require('log');
-const logThis = log('tera-auth-ticket')
+const qs = require('qs');
+const logThis = log('tera-auth-ticket');
+const snare = require('../snare');
 
 function makeHeaders(o) {
     return Object.assign({
@@ -43,9 +45,23 @@ class webClient {
         let { data: accountInfo } = await this.axios.get('/api/public/launcher_v3/user_game_accounts', {headers: this.headers});
         logThis.log(`Account Info: (Account Name: ${accountInfo.info.other.screen_name}, Account Id: ${accountInfo.info.custom[0].id})`);
         // Get Auth Token
-        let { data: authToken } = await this.axios.get(`/api/public/launcher_v3/tera_support/request_auth_token/${accountInfo.info.custom[0].id}`, {headers: this.headers});
+        let blackbox = await getBlackbox()
+        let data = {
+            'game_id': 1,
+            'game_account_id': accountInfo.info.custom[0].id,
+            'user': `{"io_black_box": "${blackbox}"}`
+        }
+        let { data: authToken } = await this.axios.get(`/api/public/launcher_v3/tera_support/check_iovation_and_request_auth_token?${qs.stringify(data)}`, {headers: this.headers})
         return {name: accountInfo.info.other.screen_name, ticket: authToken.auth_token};
     }
+}
+function getBlackbox(){
+    return new Promise((resolve, reject)=>{
+        snare((err, blackbox)=>{
+            if (err) reject(err)
+            resolve(blackbox)
+        })
+    })
 }
 
 module.exports = webClient;
