@@ -1,13 +1,13 @@
 # tera-auth-ticket
 
-***For the North American (En Masse), European (Gameforge), and Russian (Destiny) TERA regions only.***
+***For the North American (En Masse), and European (Gameforge), TERA regions only.***
 > This module is an updated alternative to [meishuu/tera-auth-ticket](https://github.com/meishuu/tera-auth-ticket) with muti-region support.
 
 ## Usage
 
 ```JavaScript
 const webClient = require('tera-auth-ticket');
-const web = new webClient('(na, eu, ru)', 'email', 'password', 'EUAccountName(optional)');
+const web = new webClient('(na, eu)', 'email', 'password', 'EUAccountName(optional)');
 
 web.getLogin((err, data) => {
     if (err) console.error(err)
@@ -28,3 +28,7 @@ Data can be used in `C_LOGIN_ARBITER` to login to the game servers.
 ### EU
 
 * If logging into multiple accounts, you can only login to up to 4 accounts ever 5 minutes or the account will be blocked.
+
+### NA
+
+* IESnare emulation is partially broken. You may experience errors using the auto generated tokens. A temporary work around is to hardcode the io_black_box token for your account.
